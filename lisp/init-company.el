@@ -12,8 +12,6 @@
 (eval-after-load 'company
   '(progn
      ;; @see https://github.com/company-mode/company-mode/issues/348
-     (unless (featurep 'company-statistics)
-       (require 'company-statistics))
      (company-statistics-mode)
 
      (add-to-list 'company-backends 'company-cmake)
@@ -22,16 +20,19 @@
      (setq company-backends (delete 'company-ropemacs company-backends))
      ;; (setq company-backends (delete 'company-capf company-backends))
 
-     ;; I don't like the downcase word in company-dabbrev
-     ;; for languages use camel case naming convention
-     ;; company should be case sensitive
-     (setq company-dabbrev-downcase nil)
-     (setq company-dabbrev-ignore-case nil)
-     (setq company-show-numbers t)
-     (setq company-idle-delay 0.2)
-     (setq company-clang-insert-arguments nil)
-     (setq company-require-match nil)
-     (setq company-etags-ignore-case t)
+     ;; I don't like the downcase word in company-dabbrev!
+     (setq company-dabbrev-downcase nil
+           ;; make previous/next selection in the popup cycles
+           company-selection-wrap-around t
+           ;; Some languages use camel case naming convention,
+           ;; so company should be case sensitive.
+           company-dabbrev-ignore-case nil
+           ;; press M-number to choose candidate
+           company-show-numbers t
+           company-idle-delay 0.2
+           company-clang-insert-arguments nil
+           company-require-match nil
+           company-etags-ignore-case t)
 
      ;; @see https://github.com/redguardtoo/emacs.d/commit/2ff305c1ddd7faff6dc9fa0869e39f1e9ed1182d
      (defadvice company-in-string-or-comment (around company-in-string-or-comment-hack activate)
@@ -70,7 +71,10 @@
   (when (boundp 'company-backends)
     (make-local-variable 'company-backends)
     (add-to-list 'company-backends 'company-ispell)
-    (setq company-ispell-dictionary ispell-alternate-dictionary)))
+    ;; https://github.com/redguardtoo/emacs.d/issues/473
+    (if (and (boundp 'ispell-alternate-dictionary)
+             ispell-alternate-dictionary)
+        (setq company-ispell-dictionary ispell-alternate-dictionary))))
 
 ;; message-mode use company-bbdb.
 ;; So we should NOT turn on company-ispell

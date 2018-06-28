@@ -1,196 +1,128 @@
-(defvar counsel-process-filename-string nil
-  "Give you a chance to change file name string for other counsel-* functions")
+(require 'counsel)
+(ivy-mode 1) ;; magit needs this
+;; not good experience
+;; (setq ivy-use-virtual-buffers t)
+(global-set-key (kbd "C-c C-r") 'ivy-resume)
+(global-set-key (kbd "C-x b") 'ivy-switch-buffer)
+
+(define-key read-expression-map (kbd "C-r") 'counsel-expression-history)
+
 ;; {{ @see http://oremacs.com/2015/04/19/git-grep-ivy/
-
-(defun counsel-escape (keyword)
-  (setq keyword (replace-regexp-in-string "\"" "\\\\\"" keyword))
-  (setq keyword (replace-regexp-in-string "\\?" "\\\\\?" keyword))
-  (setq keyword (replace-regexp-in-string "\\$" "\\\\\$" keyword))
-  (setq keyword (replace-regexp-in-string "\\*" "\\\\\*" keyword))
-  (setq keyword (replace-regexp-in-string "\\." "\\\\\." keyword))
-  (setq keyword (replace-regexp-in-string "\\[" "\\\\\[" keyword))
-  (setq keyword (replace-regexp-in-string "\\]" "\\\\\]" keyword))
-  keyword)
-
 (defun counsel-read-keyword (hint &optional default-when-no-active-region)
-  (if (region-active-p)
-      (counsel-escape (buffer-substring-no-properties (region-beginning) (region-end)))
-    (if default-when-no-active-region
-        default-when-no-active-region
-      (read-string hint))))
+  (let (keyword)
+    (cond
+     ((region-active-p)
+      (setq keyword (counsel-unquote-regex-parens (my-selected-str)))
+      ;; de-select region
+      (set-mark-command nil))
+     (t
+      (setq keyword (if default-when-no-active-region
+                        default-when-no-active-region
+                      (read-string hint)))))
+    keyword))
 
-(defun counsel-git-grep-or-find-api (fn git-cmd hint open-another-window &optional no-keyword filter)
+(defun my-counsel-recentf (&optional n)
+  "Find a file on `recentf-list'.
+If N is not nil, only list files in current project."
+  (interactive "P")
+  (require 'recentf)
+  (recentf-mode)
+  (let* ((files (mapcar #'substring-no-properties recentf-list))
+         (root-dir (if (ffip-project-root) (file-truename (ffip-project-root)))))
+    (when (and n root-dir)
+      (setq files (delq nil (mapcar (lambda (f) (path-in-directory-p f root-dir)) files))))
+    (ivy-read "Recentf: "
+              files
+              :initial-input (if (region-active-p) (my-selected-str))
+              :action (lambda (f)
+                        (with-ivy-window
+                          (find-file f)))
+              :caller 'counsel-recentf)))
+
+(defmacro counsel-git-grep-or-find-api (fn git-cmd hint no-keyword)
   "Apply FN on the output lines of GIT-CMD.  HINT is hint when user input.
-IF OPEN-ANOTHER-WINDOW is true, open the file in another window.
 Yank the file name at the same time.  FILTER is function to filter the collection"
-  (let ((str (if (buffer-file-name) (file-name-base (buffer-file-name)) ""))
-        (default-directory (locate-dominating-file
-                            default-directory ".git"))
-        keyword
-        collection val lst)
+  `(let* ((str (if (buffer-file-name) (file-name-base (buffer-file-name)) ""))
+          (default-directory (locate-dominating-file
+                              default-directory ".git"))
+          collection)
 
-    ;; insert base file name into kill ring is possible
-    (kill-new (if counsel-process-filename-string
-                  (funcall counsel-process-filename-string str)
-                str))
+     (unless ,no-keyword
+       ;; selected region contains no regular expression
+       (setq keyword (counsel-read-keyword (concat "Enter " ,hint " pattern:" ))))
 
-    (unless no-keyword
-      ;; selected region contains no regular expression
-      (setq keyword (counsel-read-keyword (concat "Enter " hint " pattern:" ))))
+     (setq collection
+           (split-string (shell-command-to-string (if ,no-keyword ,git-cmd
+                                                    (format ,git-cmd keyword)))
+                         "\n"
+                         t))
+     (cond
+      ((and collection (= (length collection) 1))
+       (funcall ,fn (car collection)))
+      (t
+       (ivy-read (if ,no-keyword ,hint (format "matching \"%s\":" keyword))
+                 collection
+                 :action ,fn)))))
 
-    ;; (message "git-cmd=%s keyword=%s" (if no-keyword git-cmd (format git-cmd keyword)) keyword)
-    (setq collection (split-string (shell-command-to-string (if no-keyword
-                                                                git-cmd
-                                                              (format git-cmd keyword)))
-                                   "\n"
-                                   t))
-    (if filter (setq collection (funcall filter collection)))
-
-    (when (and collection (> (length collection) 0))
-      (setq val (if (= 1 (length collection)) (car collection)
-                    (ivy-read (if no-keyword hint (format "matching \"%s\":" keyword)) collection)))
-      (funcall fn open-another-window val))))
-
-(defun counsel--open-grepped-file (open-another-window val)
+(defun counsel--open-file (val)
   (let* ((lst (split-string val ":"))
          (linenum (string-to-number (cadr lst))))
     ;; open file
-    (funcall (if open-another-window 'find-file-other-window 'find-file)
-             (car lst))
+    (find-file (car lst))
     ;; goto line if line number exists
     (when (and linenum (> linenum 0))
       (goto-char (point-min))
       (forward-line (1- linenum)))))
 
-(defun counsel-git-grep (&optional open-another-window)
-  "Grep in the current git repository.
-If OPEN-ANOTHER-WINDOW is not nil, results are displayed in new window."
-  (interactive "P")
-  (counsel-git-grep-or-find-api 'counsel--open-grepped-file
-                                "git --no-pager grep -I --full-name -n --no-color -i -e \"%s\""
-                                "grep"
-                                open-another-window))
+;; grep by author is bad idea because it's too slow
 
-(defvar counsel-git-grep-author-regex nil)
+(defun counsel-git-show-file ()
+  "Find file in HEAD commit or whose commit hash is selected region."
+  (interactive)
+  (counsel-git-grep-or-find-api 'find-file
+                                (format "git --no-pager diff-tree --no-commit-id --name-only -r %s"
+                                        (counsel-read-keyword nil "HEAD"))
+                                "files from `git-show' "
+                                t))
 
-;; `git --no-pager blame -w -L 397,+1 --porcelain lisp/init-evil.el'
-(defun counsel--filter-grepped-by-author (collection)
-  (if counsel-git-grep-author-regex
-      (delq nil
-            (mapcar
-             (lambda (v)
-               (let (blame-cmd (arr (split-string v ":" t)))
-                 (setq blame-cmd
-                       (format "git --no-pager blame -w -L %s,+1 --porcelain %s"
-                               (cadr arr) ; line number
-                               (car arr))) ; file
-                 (if (string-match-p (format "\\(author %s\\|author Not Committed\\)"
-                                               counsel-git-grep-author-regex)
-                                       (shell-command-to-string blame-cmd))
-                   v)))
-             collection))
-    collection))
+(defun counsel-git-diff-file ()
+  "Find file in `git diff'."
+  (interactive)
+  (counsel-git-grep-or-find-api 'find-file
+                                "git --no-pager diff --name-only"
+                                "files from `git-diff' "
+                                t))
 
-(defun counsel-git-grep-by-author (&optional open-another-window)
-  "Grep in the current git repository.
-If OPEN-ANOTHER-WINDOW is not nil, results are displayed in new window.
-SLOW when more than 20 git blame process start."
-  (interactive "P")
-  (counsel-git-grep-or-find-api 'counsel--open-grepped-file
-                                "git --no-pager grep --full-name -n --no-color -i -e \"%s\""
-                                "grep by author"
-                                open-another-window
-                                nil
-                                'counsel--filter-grepped-by-author))
+(defun counsel-insert-grepped-line (val)
+  (let ((lst (split-string val ":")) text-line)
+    ;; the actual text line could contain ":"
+    (setq text-line (replace-regexp-in-string (format "^%s:%s:" (car lst) (nth 1 lst)) "" val))
+    ;; trim the text line
+    (setq text-line (replace-regexp-in-string (rx (* (any " \t\n")) eos) "" text-line))
+    (kill-new text-line)
+    (if insert-line (insert text-line))
+    (message "line from %s:%s => kill-ring" (car lst) (nth 1 lst))))
 
-(defun counsel-git-show-file (&optional open-another-window)
-  "Find file in HEAD commit or whose commit hash is selected region.
-If OPEN-ANOTHER-WINDOW is not nil, results are displayed in new window."
-  (interactive "P")
-  (let* ((fn (lambda (open-another-window val)
-               (funcall (if open-another-window 'find-file-other-window 'find-file) val))))
-    (counsel-git-grep-or-find-api fn
-                                  (format "git --no-pager diff-tree --no-commit-id --name-only -r %s"
-                                          (counsel-read-keyword nil "HEAD"))
-                                  "files from `git-show' "
-                                  open-another-window
-                                  t)))
-
-
-(defun counsel-git-diff-file (&optional open-another-window)
-  "Find file in `git diff'.
-If OPEN-ANOTHER-WINDOW is not nil, results are displayed in new window."
-  (interactive "P")
-  (let* ((fn (lambda (open-another-window val)
-               (funcall (if open-another-window 'find-file-other-window 'find-file) val))))
-    (counsel-git-grep-or-find-api fn
-                                  "git --no-pager diff --name-only"
-                                  "files from `git-diff' "
-                                  open-another-window
-                                  t)))
-
-(defun counsel-git-find-file (&optional open-another-window)
-  "Find file in the current git repository.
-If OPEN-ANOTHER-WINDOW is not nil, results are displayed in new window."
-  (interactive "P")
-  (let* ((fn (lambda (open-another-window val)
-               (funcall (if open-another-window 'find-file-other-window 'find-file) val))))
-    (counsel-git-grep-or-find-api fn
-                                  "git ls-tree -r HEAD --name-status | grep \"%s\""
-                                  "file"
-                                  open-another-window)))
-
-(defun counsel-replace-current-line (leading-spaces content)
+(defun counsel--replace-current-line (leading-spaces content)
   (beginning-of-line)
   (kill-line)
   (insert (concat leading-spaces content))
   (end-of-line))
 
-(defun counsel-git-grep-complete-line ()
-  "Complete line by use text from (line-beginning-position) to (point)."
-  (interactive)
-  (let* ((cur-line (buffer-substring-no-properties (line-beginning-position)
-                                                   (point)))
-         (default-directory (locate-dominating-file
-                             default-directory ".git"))
-         (keyword (counsel-read-keyword nil (replace-regexp-in-string "^[ \t]*" "" cur-line)))
-         (cmd (format "git --no-pager grep -I -h --no-color -i -e \"^[ \\t]*%s\" | sed s\"\/^[ \\t]*\/\/\" | sed s\"\/[ \\t]*$\/\/\" | sort | uniq"
-                      keyword))
-         (leading-spaces "")
-         (collection (split-string (shell-command-to-string cmd) "\n" t)))
+(defvar counsel-complete-line-use-git t)
 
-    ;; grep lines without leading/trailing spaces
-    (when collection
-      (if (string-match "^\\([ \t]*\\)" cur-line)
-          (setq leading-spaces (match-string 1 cur-line)))
-      (cond
-       ((= 1 (length collection))
-        (counsel-replace-current-line leading-spaces (car collection)))
-       ((> (length collection) 1)
-        (ivy-read "lines:"
-                  collection
-                  :action (lambda (l)
-                            (counsel-replace-current-line leading-spaces l))))))))
-(global-set-key (kbd "C-x C-l") 'counsel-git-grep-complete-line)
+(defun counsel-has-quick-grep ()
+  (executable-find "rg"))
 
-(defun counsel-git-grep-yank-line (&optional insert-line)
-  "Grep in the current git repository and yank the line.
-If INSERT-LINE is not nil, insert the line grepped"
-  (interactive "P")
-  (let* ((fn (lambda (unused-param val)
-               (let ((lst (split-string val ":")) text-line)
-                 ;; the actual text line could contain ":"
-                 (setq text-line (replace-regexp-in-string (format "^%s:%s:" (car lst) (nth 1 lst)) "" val))
-                 ;; trim the text line
-                 (setq text-line (replace-regexp-in-string (rx (* (any " \t\n")) eos) "" text-line))
-                 (kill-new text-line)
-                 (if insert-line (insert text-line))
-                 (message "line from %s:%s => kill-ring" (car lst) (nth 1 lst))))))
+(defun counsel-find-quick-grep (&optional for-swiper)
+  ;; ripgrep says that "-n" is enabled actually not,
+  ;; so we manually add it
+  (concat (executable-find "rg")
+          " -n -M 128 --no-heading --color never "
+          (if for-swiper "-i '%s' %s" "-s")))
 
-    (counsel-git-grep-or-find-api fn
-                                  "git --no-pager grep -I --full-name -n --no-color -i -e \"%s\""
-                                  "grep"
-                                  nil)))
+(if (counsel-has-quick-grep)
+    (setq counsel-grep-base-command (counsel-find-quick-grep t)))
 
 (defvar counsel-my-name-regex ""
   "My name used by `counsel-git-find-my-file', support regex like '[Tt]om [Cc]hen'.")
@@ -199,44 +131,31 @@ If INSERT-LINE is not nil, insert the line grepped"
   "Find my files in the current git repository.
 If NUM is not nil, find files since NUM weeks ago.
 Or else, find files since 24 weeks (6 months) ago."
-  (interactive "P")
+  (interactive"P")
   (unless (and num (> num 0))
     (setq num 24))
-  (let* ((fn (lambda (open-another-window val)
-               (find-file val)))
-         (cmd (concat "git log --pretty=format: --name-only --since=\""
+  (let* ((cmd (concat "git log --pretty=format: --name-only --since=\""
                       (number-to-string num)
                       " weeks ago\" --author=\""
                       counsel-my-name-regex
                       "\" | grep \"%s\" | sort | uniq")))
     ;; (message "cmd=%s" cmd)
-    (counsel-git-grep-or-find-api fn cmd "file" nil)))
+    (counsel-git-grep-or-find-api 'find-file cmd "file" nil)))
 ;; }}
 
-(defun ivy-imenu-get-candidates-from (alist &optional prefix)
-  (cl-loop for elm in alist
-           nconc (if (imenu--subalist-p elm)
-                       (ivy-imenu-get-candidates-from
-                        (cl-loop for (e . v) in (cdr elm) collect
-                                 (cons e (if (integerp v) (copy-marker v) v)))
-                        ;; pass the prefix to next recursive call
-                        (concat prefix (if prefix ".") (car elm)))
-                   (and (cdr elm) ; bug in imenu, should not be needed.
-                        (setcdr elm (copy-marker (cdr elm))) ; Same as [1].
-                        (let ((key (concat prefix (if prefix ".") (car elm))) )
-                          (list (cons key (cons key (copy-marker (cdr elm)))))
-                          )))))
-
-(defun counsel-imenu-goto ()
-  "Go to buffer position"
-  (interactive)
-  (unless (featurep 'imenu)
-    (require 'imenu nil t))
-  (let* ((imenu-auto-rescan t)
-         (items (imenu--make-index-alist t)))
-    (ivy-read "imenu items:"
-              (ivy-imenu-get-candidates-from (delete (assoc "*Rescan*" items) items))
-              :action (lambda (k) (imenu k)))))
+(defun counsel--build-bookmark-candidate (bookmark)
+  (let (key)
+    ;; build key which will be displayed
+    (cond
+     ((and (assoc 'filename bookmark) (cdr (assoc 'filename bookmark)))
+      (setq key (format "%s (%s)" (car bookmark) (cdr (assoc 'filename bookmark)))))
+     ((and (assoc 'location bookmark) (cdr (assoc 'location bookmark)))
+      ;; bmkp-jump-w3m is from bookmark+
+      (setq key (format "%s (%s)" (car bookmark) (cdr (assoc 'location bookmark)))))
+     (t
+      (setq key (car bookmark))))
+    ;; re-shape the data so full bookmark be passed to ivy-read:action
+    (cons key bookmark)))
 
 (defun counsel-bookmark-goto ()
   "Open ANY bookmark.  Requires bookmark+"
@@ -247,19 +166,7 @@ Or else, find files since 24 weeks (6 months) ago."
   (bookmark-maybe-load-default-file)
 
   (let* ((bookmarks (and (boundp 'bookmark-alist) bookmark-alist))
-         (collection (delq nil (mapcar (lambda (bookmark)
-                                         (let (key)
-                                           ;; build key which will be displayed
-                                           (cond
-                                            ((and (assoc 'filename bookmark) (cdr (assoc 'filename bookmark)))
-                                             (setq key (format "%s (%s)" (car bookmark) (cdr (assoc 'filename bookmark)))))
-                                            ((and (assoc 'location bookmark) (cdr (assoc 'location bookmark)))
-                                             ;; bmkp-jump-w3m is from bookmark+
-                                             (setq key (format "%s (%s)" (car bookmark) (cdr (assoc 'location bookmark)))))
-                                            (t
-                                             (setq key (car bookmark))))
-                                           ;; re-shape the data so full bookmark be passed to ivy-read:action
-                                           (cons key bookmark)))
+         (collection (delq nil (mapcar #'counsel--build-bookmark-candidate
                                        bookmarks))))
     ;; do the real thing
     (ivy-read "bookmarks:"
@@ -269,37 +176,8 @@ Or else, find files since 24 weeks (6 months) ago."
                           (require 'bookmark+))
                         (bookmark-jump bookmark)))))
 
-(defun counsel-git-find-file-committed-with-line-at-point ()
-  (interactive)
-  (let* ((default-directory (locate-dominating-file
-                            default-directory ".git"))
-        (filename (file-truename buffer-file-name))
-        (linenum (save-restriction
-                   (widen)
-                   (save-excursion
-                     (beginning-of-line)
-                     (1+ (count-lines 1 (point))))))
-        (git-cmd (format "git --no-pager blame -w -L %d,+1 --porcelain %s"
-                         linenum
-                         filename))
-
-        (str (shell-command-to-string git-cmd))
-        hash)
-
-    (cond
-     ((and (string-match "^\\([0-9a-z]\\{40\\}\\) " str)
-           (not (string= (setq hash (match-string 1 str)) "0000000000000000000000000000000000000000")))
-      ;; (message "hash=%s" hash)
-      (counsel-git-grep-or-find-api 'counsel--open-grepped-file
-                                    (format "git --no-pager show --pretty=\"format:\" --name-only \"%s\"" hash)
-                                    (format "files in commit %s:" (substring hash 0 7))
-                                    nil
-                                    t))
-     (t
-      (message "Current line is NOT committed yet!")))))
-
 (defun counsel-yank-bash-history ()
-  "Yank the bash history"
+  "Yank the bash history."
   (interactive)
   (shell-command "history -r") ; reload history
   (let* ((collection
@@ -308,66 +186,154 @@ Or else, find files since 24 weeks (6 months) ago."
                            (insert-file-contents (file-truename "~/.bash_history"))
                            (buffer-string))
                          "\n"
-                         t)))
-         val)
-    (when (and collection (> (length collection) 0)
-               (setq val (if (= 1 (length collection)) (car collection)
-                           (ivy-read (format "Bash history:") collection))))
-      (kill-new val)
-      (message "%s => kill-ring" val))))
+                         t))))
+      (ivy-read (format "Bash history:") collection
+                :action (lambda (val)
+                          (kill-new val)
+                          (message "%s => kill-ring" val)))))
 
-(defun counsel-git-show-hash-diff-mode (hash)
-  (let ((show-cmd (format "git --no-pager show --no-color %s" hash)))
-    (diff-region-open-diff-output (shell-command-to-string show-cmd)
-                                  "*Git-show")))
-
-(defun counsel-recentf-goto ()
-  "Recent files"
-  (interactive)
+(defun counsel-recent-directory (&optional n)
+  "Goto recent directories.
+If N is not nil, only list directories in current project."
+  (interactive "P")
   (unless recentf-mode (recentf-mode 1))
-  (ivy-recentf))
-
-(defun counsel-goto-recent-directory ()
-  "Goto recent directories."
-  (interactive)
-  (unless recentf-mode (recentf-mode 1))
-  (let* ((collection (delete-dups
-                      (append (mapcar 'file-name-directory recentf-list)
+  (let* ((cands (delete-dups
+                      (append my-dired-directory-history
+                              (mapcar 'file-name-directory recentf-list)
                               ;; fasd history
                               (if (executable-find "fasd")
-                                  (split-string (shell-command-to-string "fasd -ld") "\n" t))))))
-    (ivy-read "directories:" collection :action 'dired)))
+                                  (nonempty-lines (shell-command-to-string "fasd -ld"))))))
+         (root-dir (if (ffip-project-root) (file-truename (ffip-project-root)))))
+    (when (and n root-dir)
+      (setq cands (delq nil (mapcar (lambda (f) (path-in-directory-p f root-dir)) cands))))
+    (ivy-read "directories:" cands :action 'dired)))
 
+(defun ivy-occur-grep-mode-hook-setup ()
+  ;; no syntax highlight, I only care performance when searching/replacing
+  (font-lock-mode -1)
+  ;; @see https://emacs.stackexchange.com/questions/598/how-do-i-prevent-extremely-long-lines-making-emacs-slow
+  (column-number-mode -1)
+  ;; turn on wgrep right now
+  ;; (ivy-wgrep-change-to-wgrep-mode) ; doesn't work, don't know why
+  (local-set-key (kbd "RET") #'ivy-occur-press-and-switch)
+  )
+(add-hook 'ivy-occur-grep-mode-hook 'ivy-occur-grep-mode-hook-setup)
 
-;; {{ grep/ag
-(defvar my-ag-extra-opts ""
-  "Extra ag (silver-search) options passed to `my-grep'")
+(defun counsel-git-grep-by-selected ()
+  (interactive)
+  (cond
+   ((region-active-p)
+    (counsel-git-grep counsel-git-grep-cmd-default (my-selected-str)))
+   (t
+    (counsel-git-grep))))
 
-(defvar my-grep-extra-opts "--exclude-dir=.git --exclude-dir=.bzr --exclude-dir=.svn"
-  "Extra grep options passed to `my-grep'")
-
-(defun my-grep (&optional open-another-window)
-  "Grep at project root directory or current directory.
-If ag (the_silver_searcher) exists, use ag."
+(defun counsel-browse-kill-ring (&optional n)
+  "Use `browse-kill-ring' if it exists and N is 1.
+If N > 1, assume just yank the Nth item in `kill-ring'.
+If N is nil, use `ivy-mode' to browse the `kill-ring'."
   (interactive "P")
-  (let* ((keyword (counsel-read-keyword "Enter grep pattern: "))
-         (default-directory (or (and (fboundp 'ffip-get-project-root-directory)
-                                     (ffip-get-project-root-directory))
-                                default-directory))
-         (cmd (cond
-               ((executable-find "ag")
-                (format "ag --nocolor --nogroup %s %s -- ." my-ag-extra-opts keyword))
-               (t
-                (format "%s -rsn %s \"%s\" *" grep-program y-grep-extra-opts keyword))))
-         (collection (split-string
-                      (shell-command-to-string cmd)
-                      "\n"
-                      t)))
+  (my-select-from-kill-ring my-insert-str n))
 
-    (ivy-read (format "matching \"%s\" at %s:" keyword default-directory)
-              collection
-              :action (lambda (val)
-                        (funcall 'counsel--open-grepped-file open-another-window val)))))
+(defun ivy-switch-buffer-matcher-pinyin (regexp candidates)
+  (unless (featurep 'pinyinlib) (require 'pinyinlib))
+  (let* ((pys (split-string regexp "[ \t]+"))
+         (regexp (format ".*%s.*"
+                         (mapconcat 'pinyinlib-build-regexp-string pys ".*"))))
+    (ivy--switch-buffer-matcher regexp candidates)))
+
+(defun ivy-switch-buffer-by-pinyin ()
+  "Switch to another buffer."
+  (interactive)
+  (unless (featurep 'ivy) (require 'ivy))
+  (let ((this-command 'ivy-switch-buffer))
+    (ivy-read "Switch to buffer: " 'internal-complete-buffer
+              :matcher #'ivy-switch-buffer-matcher-pinyin
+              :preselect (buffer-name (other-buffer (current-buffer)))
+              :action #'ivy--switch-buffer-action
+              :keymap ivy-switch-buffer-map
+              :caller 'ivy-switch-buffer)))
+
+(eval-after-load 'ivy
+  '(progn
+     ;; work around ivy issue.
+     ;; @see https://github.com/abo-abo/swiper/issues/828
+     (setq ivy-display-style 'fancy)))
+
+;; {{ swiper&ivy-mode
+(defun swiper-the-thing ()
+  (interactive)
+  ;; better performance on large files than swiper
+  (counsel-grep-or-swiper (my-use-selected-string-or-ask "")))
+
+(global-set-key (kbd "C-s") 'swiper)
 ;; }}
+
+(global-set-key (kbd "C-h v") 'counsel-describe-variable)
+(global-set-key (kbd "C-h f") 'counsel-describe-function)
+
+;; better performance on everything (especially windows), ivy-0.10.0 required
+;; @see https://github.com/abo-abo/swiper/issues/1218
+(setq ivy-dynamic-exhibit-delay-ms 200)
+
+;; Press C-p and Enter to select current input as candidate
+;; https://oremacs.com/2017/11/30/ivy-0.10.0/
+(setq ivy-use-selectable-prompt t)
+
+;; {{ input ":" at first to start pinyin search in any ivy-related packages
+(defvar ivy-pinyin-search-trigger-key ":")
+;; @see https://emacs-china.org/t/topic/2432/3
+(defun my-pinyinlib-build-regexp-string (str)
+  (cond
+   ((string= str ".*")
+    ".*")
+   (t
+    (pinyinlib-build-regexp-string str t))))
+
+(defun my-pinyin-regexp-helper (str)
+  (cond
+   ((string= str " ")
+    ".*")
+   ((string= str "")
+    nil)
+   (;; t
+    str)))
+
+(defun pinyin-to-utf8 (str)
+  (when (and (> (length str) 0)
+             (string= (substring str 0 1) ":"))
+    (let* ((collection (split-string (replace-regexp-in-string ivy-pinyin-search-trigger-key
+                                                               ""
+                                                               str) "")))
+      (unless (featurep 'pinyinlib) (require 'pinyinlib))
+      (mapconcat 'my-pinyinlib-build-regexp-string
+                 (delq nil (mapcar 'my-pinyin-regexp-helper
+                                   collection))
+                 ""))))
+
+(defun re-builder-pinyin (str)
+  (or (pinyin-to-utf8 str)
+      (ivy--regex-plus str)))
+
+(setq ivy-re-builders-alist
+      '((t . re-builder-pinyin)))
+;; }}
+
+;; @see https://oremacs.com/2015/07/23/ivy-multiaction/
+;; press "M-o" to choose ivy action
+(ivy-set-actions
+ 'counsel-find-file
+ '(("j" find-file-other-frame "other frame")
+   ("b" counsel-find-file-cd-bookmark-action "cd bookmark")
+   ("x" counsel-find-file-extern "open externally")
+   ("d" delete-file "delete")
+   ("r" counsel-find-file-as-root "open as root")))
+
+;; set actions when running C-x b
+;; replace "frame" with window to open in new window
+(ivy-set-actions
+ 'ivy-switch-buffer-by-pinyin
+ '(("j" switch-to-buffer-other-frame "other frame")
+   ("k" kill-buffer "kill")
+   ("r" ivy--rename-buffer-action "rename")))
 
 (provide 'init-ivy)
