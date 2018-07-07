@@ -9,6 +9,7 @@
 (setq org-directory "~/WorkSpace/GTD/")
 (setq org-agenda-files (list "~/WorkSpace/GTD/MyGTD.org"
                              "~/WorkSpace/GTD/myagendas.org"
+                             "~/WorkSpace/GTD/inbox.org"
                              "~/WorkSpace/GTD/tasks.org"
                              "~/WorkSpace/GTD/finished.org"
                              "~/WorkSpace/GTD/projects.org" ))
@@ -79,7 +80,7 @@
              '("i" "Inbox" entry (file "~/WorkSpace/GTD/inbox.org")
                "* TODO %?\n%U\n%a\n" :clock-in t :clock-resume t))
 (add-to-list 'org-capture-templates
-             '("r" "respond" entry (file "~/WorkSpace/GTD/MyGTD.org")
+             '("r" "respond" entry (file+headline "~/WorkSpace/GTD/MyGTD.org" "ResponseTo")
                "* NEXT Respond to %:from on %:subject\nSCHEDULED: %t\n%U\n%a\n" :clock-in t :clock-resume t :immediate-finish t))
 (add-to-list 'org-capture-templates
              '("b" "Book Reading Task" entry (file+olp "~/WorkSpace/GTD/MyGTD.org" "Reading" "Book")
@@ -100,7 +101,7 @@
                "* NEXT %?\n%U\n%a\nSCHEDULED: %(format-time-string \"%<<%Y-%m-%d %a .+1d/3d>>\")\n:PROPERTIES:\n:STYLE: habit\n:REPEAT_TO_STATE: NEXT\n:END:\n"))
 
 (add-to-list 'org-capture-templates
-             '("t" "Work Task" entry (file+headline "~/WorkSpace/GTD/inbox.org" "Capture Tasks")
+             '("t" "Work Task" entry (file "~/WorkSpace/GTD/inbox.org")
                "* TODO %^{Task Name}\n\tCreated:%u\n%a\n" :clock-in t :clock-resume t))
 
 (add-to-list 'org-capture-templates
@@ -272,6 +273,11 @@
                        (org-agenda-skip-function 'bh/skip-non-archivable-tasks)
                        (org-tags-match-list-sublevels nil))))
                nil))))
+
+;; ============================================================================
+;; Archiving Tasks
+(setq org-archive-mark-done nil)
+(setq org-archive-location "%s_archive::* Archived Tasks")
 
 ;; ============================================================================
 ; Add org-habit into org-modules
@@ -544,6 +550,30 @@ Skip project and sub-project tasks, habits, and loose non-project tasks."
     (if (bh/is-subproject-p)
         nil
       next-headline)))
+
+(defun bh/skip-non-archivable-tasks ()
+  "Skip trees that are note availabe for archiving"
+  (save-restriction
+    (widen)
+    ;; Consider only tasks with done todo headings as archivable candidates
+    (let ((next-headline (save-excursion (or (outline-next-heading) (point-max))))
+          (subtree-end (save-excursion (org-end-of-subtree t))))
+      (if (member (org-get-todo-state) org-todo-keywords-1)
+          (if (member (org-get-todo-state) org-done-keywords)
+              (let* ((daynr (string-to-int (format-time-string "%d" (current-time))))
+                     (a-month-ago (* 60 60 24 (+ daynr 1)))
+                     (last-month (format-time-string "%Y-%m-" (time-subtract (current-time) (seconds-to-time a-month-ago))))
+                     (this-month (format-time-string "%Y-%m-" (current-time)))
+                     (subtree-is-current (save-excursion
+                                           (forward-line 1)
+                                           (and (< (point) subtree-end)
+                                                (re-search-forward (concat last-month "\\|" this-month) subtree-end t)))))
+                (if subtree-is-current
+                    subtree-end ; Has a date in this month or last month, skip it
+                  nil))  ; available to archive
+            (or subtree-end (point-max)))
+        next-headline))))
+
 ;; ============================================================================
 
 (defun gtd ()
