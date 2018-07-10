@@ -20,6 +20,22 @@
 (set-keyboard-coding-system 'utf-8)
 (setq default-buffer-file-coding-system 'utf-8)
 
+;; Latex Support Chinese
+(require 'ox-latex)
+
+(setq org-latex-to-pdf-process
+      '("xelatex -interaction nonstopmode %f"))
+(setq org-confirm-babel-evaluate nil)
+
+(add-to-list 'org-latex-classes
+             '("cnlatex"
+               "\\documentclass{ctexart}"
+               ("\\section{%s}" . "\\section*{%s}")
+               ("\\subsection{%s}" . "\\subsection*{%s}")
+               ("\\subsubsection{%s}" . "\\subsubsection*{%s}")
+               ("\\paragraph{%s}" . "\\paragraph*{%s}")
+               ("\\subparagraph{%s}" . "\\subparagraph*{%s}")))
+
 ;; My configruation categorized by topics
 (if (file-exists-p "~/.emacs.d/myconfig/orgGTD.el") (load-file "~/.emacs.d/myconfig/orgGTD.el"))
 
