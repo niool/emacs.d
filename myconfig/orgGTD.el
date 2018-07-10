@@ -70,12 +70,37 @@
 
 ;; ============================================================================
 ;; Org-Capture mode
+;;
+;; Capture Template
+;; (Key Description type target template)
+;; type:
+;;   x entry       带有headline的一个org node项  "* headline"
+;;   x item        一个列表项目                  "- item"
+;;   x checkitem                               "[] item"
+;;   x table-line  表格行                       "|column 1 | column 2| column 3|"
+;;   x plain       普通文本
+;; target:
+;;   file   文件 	(file "path/to/file")
+;;   id 	特定 ID 的某个 headline 	(id "id of existing Org entry")
+;;   file+headline 	文件的某个唯一的 headline 	(file+headline "path/to/file" "node headline")
+;;   file+olp 	文件中的 headline 路径 	(file+olp "path/to/file" "Level 1 heading" "Level 2" …)
+;;   file+regexp 	文件中被正则匹配的 headline 	(file+regexp "path/to/file" "regexp to find location")
+;;   file+datetree 	文件中当日所在的 datetree 	(file+datetree "path/to/file")
+;;   file+datetree+prompt 	文件中的 datetree，弹出日期选择 	(file+datetree+prompt "path/to/file")
+;;   file+weektree 	文件中当日所在的 weektree 	(file+weektree "path/to/file")
+;;   file+weektree+prompt 	文件中的 weektree，弹出日期选择 	(file+weektree+prompt "path/to/file")
+;;   file+function 	文件中被函数匹配的位置 	(file+function "path/to/file" function-finding-location)
+;;   clock 	当前正在计时中的任务所在的位置 	(clock)
+;;   function 	自定义函数匹配的位置 	(function function-finding-location) 
+
 (define-key global-map "\C-cc" 'org-capture)
 (setq org-capture-templates nil)
 
 (add-to-list 'org-capture-templates
              '("n" "Notes" entry (file "~/WorkSpace/GTD/inbox.org")
-               "* %^{heading} %t %^g\n  %?\n" :clock-in t :clock-resume t))
+;;             "* %^{heading} %t %^g\n  %?\n" :clock-in t :clock-resume t
+               "* %^{heading} %t \t:NOTE:\n  %?\n" :clock-in t :clock-resume t
+               ))
 (add-to-list 'org-capture-templates
              '("i" "Inbox" entry (file "~/WorkSpace/GTD/inbox.org")
                "* TODO %?\n%U\n%a\n" :clock-in t :clock-resume t))
