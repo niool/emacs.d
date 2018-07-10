@@ -1,9 +1,9 @@
 ;; NOTE: Make the .custom.el working, you MUST copy it from Git Repo to $HOME
 
 ;; Please note the color theme's name is "molokai"
-(when (or (display-graphic-p)
-          (string-match-p "256color"(getenv "TERM")))
-  (load-theme 'molokai t))
+;; (when (or (display-graphic-p)
+;;           (string-match-p "256color"(getenv "TERM")))
+;;   (load-theme 'molokai t))
 
 (setq default-frame-alist
       '((height . 50) (width . 100) (menu-bar-lines . 20) (tool-bar-lines . 0)))
