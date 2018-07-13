@@ -131,7 +131,7 @@
 
 (add-to-list 'org-capture-templates
              '("j" "Journal" entry (file+function "~/WorkSpace/GTD/journals.org" find-month-tree)
-               "** %U - %^{heading}\n  %?" :clock-in t :clock-resume t :kill-buffer t))
+               "*** %U - %^{heading}\n  %?" :clock-in t :clock-resume t :kill-buffer t))
 (add-to-list 'org-capture-templates
              '("b" "Billing" plain (file+function "~/WorkSpace/GTD/billing.org" find-month-tree)
                " | %U | %^{类别} | %^{描述} | %^{金额} |" :kill-buffer t))

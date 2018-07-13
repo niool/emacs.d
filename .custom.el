@@ -6,7 +6,7 @@
 ;;   (load-theme 'molokai t))
 
 (setq default-frame-alist
-      '((height . 50) (width . 100) (menu-bar-lines . 20) (tool-bar-lines . 0)))
+      '((height . 52) (width . 104) (menu-bar-lines . 20) (tool-bar-lines . 0)))
 
 ;; Changes all yes/no questions to y/n type
 (fset 'yes-or-no-p 'y-or-n-p)
@@ -38,6 +38,7 @@
 
 ;; My configruation categorized by topics
 (if (file-exists-p "~/.emacs.d/myconfig/orgGTD.el") (load-file "~/.emacs.d/myconfig/orgGTD.el"))
+(if (file-exists-p "~/.emacs.d/myconfig/newsFeed.el") (load-file "~/.emacs.d/myconfig/newsFeed.el"))
 
 ;; Sandbox Area
 ;; You can test come configuration quickly here, but be sure to move it to myconfig dir
