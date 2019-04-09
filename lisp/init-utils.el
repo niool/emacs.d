@@ -1,3 +1,5 @@
+;; -*- coding: utf-8; lexical-binding: t; -*-
+
 ;; elisp version of try...catch...finally
 (defmacro safe-wrap (fn &rest clean-up)
   `(unwind-protect
@@ -9,6 +11,7 @@
             (setq retval (cons 'exception (list ex)))))
          retval)
      ,@clean-up))
+
 
 ;; {{ copied from http://ergoemacs.org/emacs/elisp_read_file_content.html
 (defun get-string-from-file (file)
@@ -118,10 +121,6 @@ Ported from 'https://github.com/fatih/camelcase/blob/master/camelcase.go'."
       (setq pos (match-end group)))
     result))
 
-(defun string-rtrim (str)
-  "Remove trailing whitespace from `STR'."
-  (replace-regexp-in-string "[ \t\n]*$" "" str))
-
 ;; Find the directory containing a given library
 (defun directory-of-library (library-name)
   "Return the directory in which the `LIBRARY-NAME' load file is found."
@@ -132,38 +131,33 @@ Ported from 'https://github.com/fatih/camelcase/blob/master/camelcase.go'."
   (let* ((pattern (concat "^" (file-name-as-directory directory))))
     (if (string-match-p pattern file) file)))
 
+(defun my-prepare-candidate-fit-into-screen (s)
+  (let* ((w (frame-width))
+         ;; display kill ring item in one line
+         (key (replace-regexp-in-string "[ \t]*[\n\r]+[ \t]*" "\\\\n" s)))
+    ;; strip the whitespace
+    (setq key (replace-regexp-in-string "^[ \t]+" "" key))
+    ;; fit to the minibuffer width
+    (if (> (length key) w)
+        (setq key (concat (substring key 0 (- w 4)) "...")))
+    (cons key s)))
+
 (defmacro my-select-from-kill-ring (fn &optional n)
-  "Use `browse-kill-ring' if it exists and N is 1.
-If N > 1, assume just yank the Nth item in `kill-ring'.
-If N is nil, use `ivy-mode' to browse the `kill-ring'."
+  "If N > 1, yank the Nth item in `kill-ring'.
+If N is nil, use `ivy-mode' to browse `kill-ring'."
   (interactive "P")
-  `(cond
-    ((or (not ,n) (and (= ,n 1) (not (fboundp 'browse-kill-ring))))
-     ;; remove duplicates in `kill-ring'
-     (let* ((candidates (cl-remove-if
-                         (lambda (s)
-                           (or (< (length s) 5)
-                               (string-match "\\`[\n[:blank:]]+\\'" s)))
-                         (delete-dups kill-ring))))
-       (let* ((ivy-height (/ (frame-height) 2)))
-         (ivy-read "Browse `kill-ring':"
-                   (mapcar
-                    (lambda (s)
-                      (let* ((w (frame-width))
-                             ;; display kill ring item in one line
-                             (key (replace-regexp-in-string "[ \t]*[\n\r]+[ \t]*" "\\\\n" s)))
-                        ;; strip the whitespace
-                        (setq key (replace-regexp-in-string "^[ \t]+" "" key))
-                        ;; fit to the minibuffer width
-                        (if (> (length key) w)
-                            (setq key (concat (substring key 0 (- w 4)) "...")))
-                        (cons key s)))
-                    candidates)
-                   :action #',fn))))
-    ((= ,n 1)
-     (browse-kill-ring))))
+  `(let* ((candidates (cl-remove-if
+                       (lambda (s)
+                         (or (< (length s) 5)
+                             (string-match-p "\\`[\n[:blank:]]+\\'" s)))
+                       (delete-dups kill-ring)))
+          (ivy-height (/ (frame-height) 2)))
+     (ivy-read "Browse `kill-ring':"
+               (mapcar #'my-prepare-candidate-fit-into-screen candidates)
+               :action #',fn)))
 
 (defun my-insert-str (str)
+  "Insert STR into current buffer."
   ;; ivy8 or ivy9
   (if (consp str) (setq str (cdr str)))
   ;; evil-mode?
@@ -174,11 +168,18 @@ If N is nil, use `ivy-mode' to browse the `kill-ring'."
            (not (eobp)))
       (forward-char))
   ;; insert now
-  (insert str))
+  (insert str)
+  str)
 
 (defun my-line-str (&optional line-end)
   (buffer-substring-no-properties (line-beginning-position)
                                   (if line-end line-end (line-end-position))))
+
+(defun my-is-one-line (b e)
+  (save-excursion
+    (goto-char b)
+    (and (<= (line-beginning-position) b)
+         (<= e (1+ (line-end-position))))))
 
 (defun my-buffer-str ()
   (buffer-substring-no-properties (point-min) (point-max)))
@@ -247,8 +248,8 @@ If N is nil, use `ivy-mode' to browse the `kill-ring'."
 (defvar cached-normal-file-full-path nil)
 
 (defun buffer-too-big-p ()
-  (or (> (buffer-size) (* 5000 64))
-      (> (line-number-at-pos (point-max)) 5000)))
+  ;; 5000 lines
+  (> (buffer-size) (* 5000 80)))
 
 (defun file-too-big-p (file)
   (> (nth 7 (file-attributes file))
@@ -258,14 +259,14 @@ If N is nil, use `ivy-mode' to browse the `kill-ring'."
 (defun is-buffer-file-temp ()
   (interactive)
   "If (buffer-file-name) is nil or a temp file or HTML file converted from org file"
-  (let ((f (buffer-file-name))
-        org
-        (rlt t))
+  (let* ((f (buffer-file-name)) org (rlt t))
     (cond
-     ((not load-user-customized-major-mode-hook) t)
+     ((not load-user-customized-major-mode-hook)
+      (setq rlt t))
      ((not f)
       ;; file does not exist at all
-      (setq rlt t))
+      ;; org-babel edit inline code block need calling hook
+      (setq rlt nil))
      ((string= f cached-normal-file-full-path)
       (setq rlt nil))
      ((string-match (concat "^" temporary-file-directory) f)
@@ -320,7 +321,7 @@ you can '(setq my-mplayer-extra-opts \"-ao alsa -vo vdpau\")'.")
 ;; {{ simpleclip has problem on Emacs 25.1
 (defun test-simpleclip ()
   (unwind-protect
-      (let (retval)
+      (let* (retval)
         (condition-case ex
             (progn
               (simpleclip-set-contents "testsimpleclip!")
@@ -328,21 +329,12 @@ you can '(setq my-mplayer-extra-opts \"-ao alsa -vo vdpau\")'.")
                     (string= "testsimpleclip!"
                              (simpleclip-get-contents))))
           ('error
-           (message (format "Please install %s to support clipboard from terminal."
-                            (cond
-                             (*unix*
-                              "xsel or xclip")
-                             ((or *cygwin* *win64*)
-                              "cygutils-extra from Cygwin")
-                             (t
-                              "CLI clipboard tools"))))
            (setq retval nil)))
         retval)))
-
 (setq simpleclip-works (test-simpleclip))
 
 (defun my-gclip ()
-  (unless (featurep 'simpleclip) (require 'simpleclip))
+  (local-require 'simpleclip)
   (cond
    (simpleclip-works
     (simpleclip-get-contents))
@@ -359,7 +351,7 @@ you can '(setq my-mplayer-extra-opts \"-ao alsa -vo vdpau\")'.")
            (cond
             (powershell-program
              ;; PowerLine adds extra white space character at the end of text
-             (string-trim-right
+             (string-trim-right ; emacs 24.4
               (with-output-to-string
                 (with-current-buffer standard-output
                   (call-process powershell-program nil t nil "-command" "Get-Clipboard")))))
@@ -369,27 +361,27 @@ you can '(setq my-mplayer-extra-opts \"-ao alsa -vo vdpau\")'.")
                  (call-process "xsel" nil t nil "--clipboard" "--output")))))))))
 
 (defun my-pclip (str-val)
-    (cond
-     (simpleclip-works
-      (simpleclip-set-contents str-val))
-     ((eq system-type 'darwin)
+  (cond
+   (simpleclip-works
+    (simpleclip-set-contents str-val))
+   ((eq system-type 'darwin)
+    (with-temp-buffer
+      (insert str-val)
+      (call-process-region (point-min) (point-max) "/usr/bin/pbcopy")))
+   ((eq system-type 'cygwin)
+    (with-temp-buffer
+      (insert str-val)
+      (call-process-region (point-min) (point-max) "putclip")))
+   ((memq system-type '(gnu gnu/linux gnu/kfreebsd))
+    (let* ((win64-clip-program (executable-find "clip.exe")))
       (with-temp-buffer
         (insert str-val)
-        (call-process-region (point-min) (point-max) "/usr/bin/pbcopy")))
-     ((eq system-type 'cygwin)
-      (with-temp-buffer
-        (insert str-val)
-        (call-process-region (point-min) (point-max) "putclip")))
-     ((memq system-type '(gnu gnu/linux gnu/kfreebsd))
-      (let* ((win64-clip-program (executable-find "clip.exe")))
-        (with-temp-buffer
-          (insert str-val)
-          (cond
-           ;; Linux Subsystem on Windows 10
-           (win64-clip-program
-            (call-process-region (point-min) (point-max) win64-clip-program))
-           (t
-            (call-process-region (point-min) (point-max) "xsel" nil nil nil "--clipboard" "--input"))))))))
+        (cond
+         ;; Linux Subsystem on Windows 10
+         (win64-clip-program
+          (call-process-region (point-min) (point-max) win64-clip-program))
+         (t
+          (call-process-region (point-min) (point-max) "xsel" nil nil nil "--clipboard" "--input"))))))))
 ;; }}
 
 (defun make-concated-string-from-clipboard (concat-char)
@@ -423,6 +415,21 @@ you can '(setq my-mplayer-extra-opts \"-ao alsa -vo vdpau\")'.")
                      (lambda ()
                        (interactive)
                        (diff-region-exit-from-certain-buffer ,buffer-name))))))
-
 ;; }}
+
+(defun should-use-minimum-resource ()
+  (and buffer-file-name
+       (string-match-p "\.\\(mock\\|min\\)\.js" buffer-file-name)))
+
+(defun my-async-shell-command (command)
+  "Execute string COMMAND asynchronously."
+  (let* ((proc (start-process "Shell"
+                              nil
+                              shell-file-name
+                              shell-command-switch command)))
+    (set-process-sentinel proc `(lambda (process signal)
+                                  (let* ((status (process-status process)))
+                                    (when (memq status '(exit signal))
+                                      (unless (string= (substring signal 0 -1) "finished")
+                                        (message "Failed to run \"%s\"." ,command))))))))
 (provide 'init-utils)

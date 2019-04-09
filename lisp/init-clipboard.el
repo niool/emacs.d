@@ -1,4 +1,9 @@
+;; -*- coding: utf-8; lexical-binding: t; -*-
+
 ;; Use the system clipboard
+;; @see https://www.emacswiki.org/emacs/CopyAndPaste
+;; So `C-y' could paste from clipbord if you are NOT using emacs-nox
+;; I only use `paste-from-x-clipboard', not `C-y'.
 (setq x-select-enable-clipboard t
       x-select-enable-primary t)
 
@@ -9,7 +14,8 @@
 ;; xclip has some problem when copying under Linux
 (defun copy-yank-str (msg &optional clipboard-only)
   (unless clipboard-only (kill-new msg))
-  (my-pclip msg))
+  (my-pclip msg)
+  msg)
 
 (defun cp-filename-of-current-buffer (&optional n)
   "Copy file name (NOT full path) into the yank ring and OS clipboard.
@@ -40,6 +46,13 @@ If N is not nil, copy file name and line number."
   (when buffer-file-name
     (copy-yank-str (file-truename buffer-file-name))
     (message "file full path => clipboard & yank ring")))
+
+(defun clipboard-to-kill-ring ()
+  "Copy from clipboard to `kill-ring'."
+  (interactive)
+  (let* ((warning-minimum-level :emergency))
+    (kill-new (my-gclip)))
+  (message "clipboard => kill-ring"))
 
 (defun kill-ring-to-clipboard ()
   "Copy from `kill-ring' to clipboard."
@@ -83,11 +96,10 @@ If NUM equals 4, kill-ring => clipboard."
 (defun paste-from-x-clipboard(&optional n)
   "Paste string clipboard.
 If N is 1, we paste diff hunk whose leading char should be removed.
-If N is 2, paste into kill-ring too.
+If N is 2, paste into `kill-ring' too.
 If N is 3, converted dashed to camelcased then paste.
 If N is 4, rectangle paste. "
   (interactive "P")
-  ;; paste after the cursor in evil normal state
   (when (and (functionp 'evil-normal-state-p)
              (functionp 'evil-move-cursor-back)
              (evil-normal-state-p)
@@ -96,10 +108,17 @@ If N is 4, rectangle paste. "
     (forward-char))
   (let* ((str (my-gclip))
          (fn 'insert))
+
+    (when (> (length str) (* 256 1024))
+      ;; use light weight `major-mode' like `js-mode'
+      (when (derived-mode-p 'js2-mode)
+        (js-mode 1))
+      ;; turn off syntax highlight
+      (font-lock-mode -1))
+
+    ;; paste after the cursor in evil normal state
     (cond
-     ((not n)
-      ;; do nothing
-      )
+     ((not n)) ; do nothing
      ((= 1 n)
       (setq str (replace-regexp-in-string "^\\(+\\|-\\|@@ $\\)" "" str)))
      ((= 2 n)
