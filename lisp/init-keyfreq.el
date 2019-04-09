@@ -1,3 +1,5 @@
+;; -*- coding: utf-8; lexical-binding: t; -*-
+
 (local-require 'keyfreq)
 
 (defun turnon-keyfreq-mode ()
@@ -20,9 +22,6 @@
         backward-char
         backward-kill-word
         backward-word
-        browse-kill-ring-forward
-        browse-kill-ring-insert-and-quit
-        browse-kill-ring-quit
         clipboard-kill-ring-save
         comint-previous-input
         comint-send-input
@@ -155,6 +154,7 @@
         kill-sentence
         left-char
         markdown-exdent-or-delete
+        markdown-outdent-or-delete
         minibuffer-complete
         minibuffer-complete-and-exit
         minibuffer-keyboard-quit

@@ -1,3 +1,5 @@
+;; -*- coding: utf-8; lexical-binding: t; -*-
+
 ;; may be in an arbitrary order
 (eval-when-compile (require 'cl))
 
@@ -45,7 +47,7 @@
     (imenu--generic-function javascript-common-imenu-regex-list)))
 
 (defun my-common-js-setup ()
-  (unless (featurep 'js-comint) (require 'js-comint)))
+  (local-require 'js-comint))
 
 (defun mo-js-mode-hook ()
   (when (and (not (is-buffer-file-temp)) (not (derived-mode-p 'js2-mode)))
@@ -263,8 +265,7 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
     ;; if use node.js we need nice output
     (js2-imenu-extras-mode)
     (setq mode-name "JS2")
-    (unless (featurep 'js2-refactor) (require 'js2-refactor))
-    (js2-refactor-mode 1)
+    ;; counsel/ivy is more generic and powerful for refactoring
     ;; js2-mode has its own syntax linter
     (flymake-mode -1)
     ;; call js-doc commands through `counsel-M-x'!
@@ -274,8 +275,8 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
 
 (add-hook 'js2-mode-hook 'my-js2-mode-setup)
 
-(setq auto-mode-alist (cons '("\\.json$" . js-mode) auto-mode-alist))
-(setq auto-mode-alist (cons '("\\.jason$" . js-mode) auto-mode-alist))
+(setq auto-mode-alist (cons '("\\.ja?son$" . js-mode) auto-mode-alist))
+(setq auto-mode-alist (cons '("\\.pac$" . js-mode) auto-mode-alist))
 (setq auto-mode-alist (cons '("\\.jshintrc$" . js-mode) auto-mode-alist))
 
 (cond
@@ -335,13 +336,8 @@ INDENT-SIZE decide the indentation level.
   (js-send-buffer))
 ;; }}
 
-;; Thanks to Aaron Jensen for cleaner code
-(defadvice js-jsx-indent-line (after js-jsx-indent-line-after-hack activate)
-  "Workaround sgml-mode and follow airbnb component style."
-  (save-excursion
-    (beginning-of-line)
-    (if (looking-at-p "^ +\/?> *$")
-        (delete-char sgml-basic-offset))))
+;; Latest rjsx-mode does not have indentation issue
+;; @see https://emacs.stackexchange.com/questions/33536/how-to-edit-jsx-react-files-in-emacs
 
 (setq-default js2-additional-externs
               '("$"
@@ -370,16 +366,18 @@ INDENT-SIZE decide the indentation level.
                 "clearTimeout"
                 "command" ; Keysnail
                 "content" ; Keysnail
+                "decodeURI"
                 "define"
                 "describe"
-                "documentRef"
-                "global"
                 "display" ; Keysnail
+                "documentRef"
                 "element"
+                "encodeURI"
                 "expect"
                 "ext" ; Keysnail
                 "fetch"
                 "gBrowser" ; Keysnail
+                "global"
                 "goDoCommand" ; Keysnail
                 "hook" ; Keysnail
                 "inject"
@@ -390,7 +388,9 @@ INDENT-SIZE decide the indentation level.
                 "key" ; Keysnail
                 "ko"
                 "log"
+                "mockStore"
                 "module"
+                "mountWithTheme"
                 "plugins" ; Keysnail
                 "process"
                 "require"
