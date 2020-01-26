@@ -1,5 +1,6 @@
-(add-to-list 'auto-mode-alist '("\\.\\(cmp\\|app\\|page\\|component\\|wp\\|vue\\|tmpl\\|php\\|module\\|inc\\|hbs\\|tpl\\|[gj]sp\\|as[cp]x\\|erb\\|mustache\\|djhtml\\|ftl\\|[rp]?html?\\|xul?\\|eex?\\|xml?\\|jst\\|ejs\\|er
-b\\)\\'" . web-mode))
+(add-auto-mode 'web-mode
+               "\\.\\(cmp\\|app\\|page\\|component\\|wp\\|vue\\|tmpl\\|php\\|module\\|inc\\|hbs\\|tpl\\|[gj]sp\\|as[cp]x\\|erb\\|mustache\\|djhtml\\|ftl\\|[rp]?html?\\|xul?\\|eex?\\|xml?\\|jst\\|ejs\\|er
+b\\)\\'")
 
 (defun flymake-html-init ()
   (let* ((temp-file (flymake-init-create-temp-buffer-copy
@@ -8,6 +9,14 @@ b\\)\\'" . web-mode))
                       temp-file
                       (file-name-directory buffer-file-name))))
     (list "tidy" (list local-file))))
+
+
+(defun my-tidy-html()
+  "Use tidy to format html."
+  (interactive)
+  (let* ((err-file (make-temp-file "tidy-tmp")))
+    (run-cmd-and-replace-region (format "tidy -f %s -q -i -c" err-file))
+    (delete-file err-file)))
 
 (defun flymake-html-load ()
   (interactive)

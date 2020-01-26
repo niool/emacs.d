@@ -5,6 +5,12 @@
 
 (setq-default js2-use-font-lock-faces t
               js2-mode-must-byte-compile nil
+              ;; {{ comment indention in modern frontend development
+              javascript-indent-level 2
+              js-indent-level 2
+              css-indent-offset 2
+              typescript-indent-level 2
+              ;; }}
               js2-strict-trailing-comma-warning nil ; it's encouraged to use trailing comma in ES6
               js2-idle-timer-delay 0.5 ; NOT too big for real time syntax check
               js2-auto-indent-p nil
@@ -21,6 +27,7 @@
         ("Filter" "[. \t]filter([ \t]*['\"]\\([^'\"]+\\)" 1)
         ("State" "[. \t]state[(:][ \t]*['\"]\\([^'\"]+\\)" 1)
         ("Factory" "[. \t]factory([ \t]*['\"]\\([^'\"]+\\)" 1)
+        ("Global" "^\\(export const\\|const\\) \\([a-zA-Z][a-zA-Z0-9]*\\) =" 2)
         ("Service" "[. \t]service([ \t]*['\"]\\([^'\"]+\\)" 1)
         ("Module" "[. \t]module( *['\"]\\([a-zA-Z0-9_.]+\\)['\"], *\\[" 1)
         ("ngRoute" "[. \t]when(\\(['\"][a-zA-Z0-9_\/]+['\"]\\)" 1)
@@ -54,8 +61,8 @@
     (my-common-js-setup)
     (setq imenu-create-index-function 'mo-js-imenu-make-index)
     (flymake-mode 1)))
-
 (add-hook 'js-mode-hook 'mo-js-mode-hook)
+
 (eval-after-load 'js-mode
   '(progn
      ;; '$' is part of variable name like '$item'
@@ -65,7 +72,7 @@
 (setq js2-imenu-extra-generic-expression javascript-common-imenu-regex-list)
 
 (defvar js2-imenu-original-item-lines nil
-  "List of line infomration of original imenu items.")
+  "List of line information of original imenu items.")
 
 (defun js2-imenu--get-line-start-end (pos)
   (let* (b e)
@@ -171,8 +178,7 @@ If NOT-JSON-P is not nil, validate as Javascript expression instead of JSON."
       (setq json-exp (format "var a=%s;"  json-exp)))
     (with-temp-buffer
       (insert json-exp)
-      (unless (featurep 'js2-mode)
-        (require 'js2-mode))
+      (my-ensure 'js2-mode)
       (js2-parse)
       (setq errs (js2-errors))
       (cond
@@ -201,8 +207,7 @@ If HARDCODED-ARRAY-INDEX provided, array index in JSON path is replaced with it.
       (when (string= "json" (file-name-extension buffer-file-name))
         (setq str (format "var a=%s;" str))
         (setq cur-pos (+ cur-pos (length "var a="))))
-      (unless (featurep 'js2-mode)
-        (require 'js2-mode))
+      (my-ensure 'js2-mode)
       (with-temp-buffer
         (insert str)
         (js2-init-scanner)
@@ -232,23 +237,16 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
   (setq extra-rlt (js2-imenu--remove-duplicate-items extra-rlt))
   (append rlt extra-rlt))
 
-;; {{ print json path, will be removed when latest STABLE js2-mode released
-(defun js2-get-element-index-from-array-node (elem array-node &optional hardcoded-array-index)
-  "Get index of ELEM from ARRAY-NODE or 0 and return it as string."
-  (let* ((idx 0) elems (rlt hardcoded-array-index))
-    (setq elems (js2-array-node-elems array-node))
-    (if (and elem (not hardcoded-array-index))
-        (setq rlt (catch 'nth-elt
-                    (dolist (x elems)
-                      ;; We know the ELEM does belong to ARRAY-NODE,
-                      (if (eq elem x) (throw 'nth-elt idx))
-                      (setq idx (1+ idx)))
-                    0)))
-    (format "[%s]" rlt)))
-;; }}
-
 (eval-after-load 'js2-mode
   '(progn
+     ;; {{ I hate the hotkeys to hide things
+     (define-key js2-mode-map (kbd "C-c C-e") nil)
+     (define-key js2-mode-map (kbd "C-c C-s") nil)
+     (define-key js2-mode-map (kbd "C-c C-f") nil)
+     (define-key js2-mode-map (kbd "C-c C-t") nil)
+     (define-key js2-mode-map (kbd "C-c C-o") nil)
+     (define-key js2-mode-map (kbd "C-c C-w") nil)
+     ;; }}
      (defadvice js2-mode-create-imenu-index (around my-js2-mode-create-imenu-index activate)
        (let (rlt extra-rlt)
          ad-do-it
@@ -275,24 +273,31 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
 
 (add-hook 'js2-mode-hook 'my-js2-mode-setup)
 
-(setq auto-mode-alist (cons '("\\.ja?son$" . js-mode) auto-mode-alist))
-(setq auto-mode-alist (cons '("\\.pac$" . js-mode) auto-mode-alist))
-(setq auto-mode-alist (cons '("\\.jshintrc$" . js-mode) auto-mode-alist))
+(add-auto-mode 'js-mode
+               "\\.ja?son$"
+               "\\.pac$"
+               "\\.jshintrc$")
 
 (cond
  ((not *no-memory*)
-  (setq auto-mode-alist (cons '("\\.ts\\'" . js2-mode) auto-mode-alist))
-  (setq auto-mode-alist (cons '("\\.js\\(\\.erb\\)?\\'" . js2-mode) auto-mode-alist))
-  ;; facebook ReactJS, use Emacs25 to fix component indentation problem
-  ;; @see https://github.com/mooz/js2-mode/issues/291
-  (add-to-list 'auto-mode-alist '("\\.jsx\\'" . rjsx-mode))
-  (add-to-list 'auto-mode-alist '("components\\/.*\\.js\\'" . rjsx-mode))
-  (add-to-list 'auto-mode-alist '("\\.mock.js\\'" . js-mode))
+  ;; javascript
+  (add-auto-mode 'js2-mode
+                 "\\.js\\(\\.erb\\)?\\'")
+  ;; JSX
+  (add-auto-mode 'rjsx-mode
+                 "\\.jsx\\'"
+                 "components\\/.*\\.js\\'")
+  ;; mock file
+  (add-auto-mode 'js-mode
+                 "\\.mock.js\\'")
   (add-to-list 'interpreter-mode-alist (cons "node" 'js2-mode)))
  (t
-  (setq auto-mode-alist (cons '("\\.js\\(\\.erb\\)?\\'" . js-mode) auto-mode-alist))
-  (setq auto-mode-alist (cons '("\\.ts\\'" . js-mode) auto-mode-alist))))
-(add-to-list 'auto-mode-alist '("\\.babelrc\\'" . js-mode))
+  (add-auto-mode 'js-mode
+                 "\\.js\\(\\.erb\\)?\\'"
+                 "\\.babelrc\\'")))
+
+(add-auto-mode 'typescript-mode
+               "\\.ts$")
 
 ;; @see https://github.com/felipeochoa/rjsx-mode/issues/33
 (eval-after-load 'rjsx-mode
@@ -305,28 +310,27 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
 INDENT-SIZE decide the indentation level.
 `sudo pip install jsbeautifier` to install js-beautify.'"
   (interactive "P")
-  (let* ((orig-point (point))
-         (b (if (region-active-p) (region-beginning) (point-min)))
-         (e (if (region-active-p) (region-end) (point-max)))
-         (js-beautify (if (executable-find "js-beautify") "js-beautify"
+  (let* ((js-beautify (if (executable-find "js-beautify") "js-beautify"
                         "jsbeautify")))
     ;; detect indentation level
     (unless indent-size
       (setq indent-size (cond
                          ((memq major-mode '(js-mode javascript-mode))
                           js-indent-level)
+
                          ((memq major-mode '(web-mode))
                           web-mode-code-indent-offset)
+
+                         ((memq major-mode '(typescript-mode))
+                          typescript-indent-level)
+
                          (t
-                          js2-basic-offset))))
+                          2))))
     ;; do it!
-    (shell-command-on-region b e
-                             (concat "js-beautify"
-                                     " --stdin "
-                                     " --jslint-happy --brace-style=end-expand --keep-array-indentation "
-                                     (format " --indent-size=%d " indent-size))
-                             nil t)
-    (goto-char orig-point)))
+    (run-cmd-and-replace-region (concat "js-beautify"
+                                        " --stdin "
+                                        " --jslint-happy --brace-style=end-expand --keep-array-indentation "
+                                        (format " --indent-size=%d " indent-size)))))
 ;; }}
 
 ;; {{ js-comint
@@ -338,6 +342,10 @@ INDENT-SIZE decide the indentation level.
 
 ;; Latest rjsx-mode does not have indentation issue
 ;; @see https://emacs.stackexchange.com/questions/33536/how-to-edit-jsx-react-files-in-emacs
+
+(defun typescript-mode-hook-setup ()
+  (setq imenu-create-index-function 'mo-js-imenu-make-index))
+(add-hook 'typescript-mode-hook 'typescript-mode-hook-setup)
 
 (setq-default js2-additional-externs
               '("$"

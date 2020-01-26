@@ -1,7 +1,6 @@
 ;; -*- coding: utf-8; lexical-binding: t; -*-
 
-(setq auto-mode-alist
-      (cons '("\\.\\(m[k]d\\|markdown\\)\\'" . markdown-mode) auto-mode-alist))
+(add-auto-mode 'markdown-mode "\\.\\(m[k]d\\|markdown\\)\\'")
 
 (defun markdown-imenu-index ()
   (let* ((patterns '((nil "^#\\([# ]*[^#\n\r]+\\)" 1))))
@@ -13,7 +12,7 @@
   ;; makes markdown tables saner via orgtbl-mode
   ;; Insert org table and it will be automatically converted
   ;; to markdown table
-  (unless (featurep 'org-table) (require 'org-table))
+  (my-ensure 'org-table)
   (defun cleanup-org-tables ()
     (save-excursion
       (goto-char (point-min))

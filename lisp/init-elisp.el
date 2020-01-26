@@ -1,8 +1,9 @@
 ;; -*- coding: utf-8; lexical-binding: t; -*-
 
-(add-to-list 'auto-mode-alist '("\\.emacs-project\\'" . emacs-lisp-mode))
-(add-to-list 'auto-mode-alist '("archive-contents\\'" . emacs-lisp-mode))
-(add-to-list 'auto-mode-alist '("\\.emacs\\.bmk\\'" . emacs-lisp-mode))
+(add-auto-mode 'emacs-lisp-mode
+               "\\.emacs-project\\'"
+               "archive-contents\\'"
+               "\\.emacs\\.bmk\\'" )
 
 ;; @see http://blog.urth.org/2011/06/02/flymake-versus-the-catalyst-restarter/
 (defun flymake-create-temp-intemp (file-name prefix)
@@ -68,15 +69,15 @@
 
 (defun elisp-mode-hook-setup ()
   (unless (is-buffer-file-temp)
-    (when (require 'eldoc nil t)
-      (setq eldoc-idle-delay 0.2)
-      (setq eldoc-echo-area-use-multiline-p t)
-      (turn-on-eldoc-mode))
+    (my-ensure 'eldoc)
+    (turn-on-eldoc-mode)
     (enable-paredit-mode)
     (rainbow-delimiters-mode t)
     (set-up-hippie-expand-for-elisp)
     (flymake-mode 1)
-    (push '("\\.el$" flymake-elisp-init) flymake-allowed-file-name-masks)
+    (setq flymake-allowed-file-name-masks
+          (add-to-list 'flymake-allowed-file-name-masks
+                       '("\\.el$" flymake-elisp-init)))
     (checkdoc-minor-mode 1)))
 (add-hook 'emacs-lisp-mode-hook 'elisp-mode-hook-setup)
 

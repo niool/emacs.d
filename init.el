@@ -38,7 +38,10 @@
 (setq *emacs26* (>= emacs-major-version 26))
 (setq *no-memory* (cond
                    (*is-a-mac*
-                    (< (string-to-number (nth 1 (split-string (shell-command-to-string "sysctl hw.physmem")))) 4000000000))
+                    ;; @see https://discussions.apple.com/thread/1753088
+                    ;; "sysctl -n hw.physmem" does not work
+                    (<= (string-to-number (shell-command-to-string "sysctl -n hw.memsize"))
+                        (* 4 1024 1024)))
                    (*linux* nil)
                    (t nil)))
 
@@ -50,17 +53,20 @@
   (setq gc-cons-percentage 0.5)
   (run-with-idle-timer 5 t #'garbage-collect))
 
-(defmacro local-require (pkg)
-  `(unless (featurep ,pkg)
-     (load (expand-file-name
-             (cond
-               ((eq ,pkg 'bookmark+)
-                (format "~/.emacs.d/site-lisp/bookmark-plus/%s" ,pkg))
-               ((eq ,pkg 'go-mode-load)
-                (format "~/.emacs.d/site-lisp/go-mode/%s" ,pkg))
-               (t
-                 (format "~/.emacs.d/site-lisp/%s/%s" ,pkg ,pkg))))
-           t t)))
+(defun require-init (pkg &optional maybe-disabled)
+  "Load PKG if MAYBE-DISABLED is nil or it's nil but start up in normal slowly."
+  (when (or (not maybe-disabled) (not (boundp 'startup-now)))
+    (load (file-truename (format "~/.emacs.d/lisp/%s" pkg)) t t)))
+
+(defun local-require (pkg)
+  (unless (featurep pkg)
+    (load (expand-file-name
+           (cond
+            ((eq pkg 'go-mode-load)
+             (format "~/.emacs.d/site-lisp/go-mode/%s" pkg))
+            (t
+             (format "~/.emacs.d/site-lisp/%s/%s" pkg pkg))))
+          t t)))
 
 ;; *Message* buffer should be writable in 24.4+
 (defadvice switch-to-buffer (after switch-to-buffer-after-hack activate)
@@ -74,79 +80,96 @@
 ;; ("\\`/:" . file-name-non-special))
 ;; Which means on every .el and .elc file loaded during start up, it has to runs those regexps against the filename.
 (let* ((file-name-handler-alist nil))
+
+  ;; ;; {{
+  ;; (require 'benchmark-init-modes)
+  ;; (require 'benchmark-init)
+  ;; (benchmark-init/activate)
+  ;; ;; `benchmark-init/show-durations-tree' to show benchmark result
+  ;; ;; }}
+
+  (require-init 'init-autoload)
   ;; `package-initialize' takes 35% of startup time
   ;; need check https://github.com/hlissner/doom-emacs/wiki/FAQ#how-is-dooms-startup-so-fast for solution
-  (require 'init-autoload)
-  (require 'init-modeline)
-  (require 'init-utils)
-  (require 'init-elpa)
-  (require 'init-exec-path) ;; Set up $PATH
+  (require-init 'init-modeline)
+  (require-init 'init-utils)
+  (require-init 'init-elpa)
+  (require-init 'init-exec-path t) ;; Set up $PATH
   ;; Any file use flyspell should be initialized after init-spelling.el
-  (require 'init-spelling)
-  (require 'init-gui-frames)
-  (require 'init-uniquify)
-  (require 'init-ibuffer)
-  (require 'init-ivy)
-  (require 'init-hippie-expand)
-  (require 'init-windows)
-  (require 'init-markdown)
-  (require 'init-javascript)
-  (require 'init-org)
-  (require 'init-css)
-  (require 'init-python)
-  (require 'init-ruby-mode)
-  (require 'init-lisp)
-  (require 'init-elisp)
-  (require 'init-yasnippet)
-  ;; Use bookmark instead
-  (require 'init-cc-mode)
-  (require 'init-gud)
-  (require 'init-linum-mode)
-  (require 'init-git) ;; git-gutter should be enabled after `display-line-numbers-mode' turned on
-  ;; (require 'init-gist)
-  (require 'init-gtags)
-  ;; init-evil dependent on init-clipboard
-  (require 'init-clipboard)
-  ;; use evil mode (vi key binding)
-  (require 'init-evil)
-  (require 'init-ctags)
-  (require 'init-bbdb)
-  (require 'init-gnus)
-  (require 'init-lua-mode)
-  (require 'init-workgroups2)
-  (require 'init-term-mode)
-  (require 'init-web-mode)
-  (require 'init-company)
-  (require 'init-chinese) ;; cannot be idle-required
+  (require-init 'init-spelling t)
+  (require-init 'init-gui-frames t)
+  (require-init 'init-uniquify t)
+  (require-init 'init-ibuffer t)
+  (require-init 'init-ivy)
+  (require-init 'init-hippie-expand)
+  (require-init 'init-windows)
+  (require-init 'init-markdown t)
+  (require-init 'init-javascript t)
+  (require-init 'init-org t)
+  (require-init 'init-css t)
+  (require-init 'init-python t)
+  (require-init 'init-ruby-mode t)
+  (require-init 'init-lisp t)
+  (require-init 'init-elisp t)
+  (require-init 'init-yasnippet t)
+  (require-init 'init-cc-mode t)
+  (require-init 'init-gud t)
+  (require-init 'init-linum-mode)
+  (require-init 'init-git t)
+  ;; (require-init 'init-gist)
+  (require-init 'init-gtags t)
+  (require-init 'init-clipboard)
+  (require-init 'init-ctags t)
+  (require-init 'init-bbdb t)
+  (require-init 'init-gnus t)
+  (require-init 'init-lua-mode t)
+  (require-init 'init-workgroups2 t) ; use native API in lightweight mode
+  (require-init 'init-term-mode t)
+  (require-init 'init-web-mode t)
+  (require-init 'init-company t)
+  (require-init 'init-chinese t) ;; cannot be idle-required
   ;; need statistics of keyfreq asap
-  (require 'init-keyfreq)
-  (require 'init-httpd)
+  (require-init 'init-keyfreq t)
+  (require-init 'init-httpd t)
 
   ;; projectile costs 7% startup time
 
-  ;; misc has some crucial tools I need immediately
-  (require 'init-misc)
+  ;; don't play with color-theme in light weight mode
+  ;; color themes are already installed in `init-elpa.el'
+  (require-init 'init-theme t)
 
-  (require 'init-emacs-w3m)
-  (require 'init-hydra)
-  (require 'init-shackle)
-  (require 'init-dired)
-  (require 'init-writting)
+  ;; misc has some crucial tools I need immediately
+  (require-init 'init-essential)
+  ;; handy tools though not must have
+  (require-init 'init-misc t)
+
+  (require-init 'init-emacs-w3m t)
+  (require-init 'init-shackle t)
+  (require-init 'init-dired t)
+  (require-init 'init-writting t)
+  (require-init 'init-hydra) ; hotkey is required everywhere
+  ;; use evil mode (vi key binding)
+  (require-init 'init-evil) ; init-evil dependent on init-clipboard
+
+  ;; ediff configuration should be last so it can override
+  ;; the key bindings in previous configuration
+  (require-init 'init-ediff)
 
   ;; @see https://github.com/hlissner/doom-emacs/wiki/FAQ
   ;; Adding directories under "site-lisp/" to `load-path' slows
   ;; down all `require' statement. So we do this at the end of startup
-  ;; Neither ELPA package nor dependent on "site-lisp/".
+  ;; NO ELPA package is dependent on "site-lisp/".
   (setq load-path (cdr load-path))
-  (load (expand-file-name "~/.emacs.d/lisp/init-site-lisp") t t)
+  (my-add-subdirs-to-load-path "~/.emacs.d/site-lisp/")
 
-  ;; my personal setup, other major-mode specific setup need it.
-  ;; It's dependent on "~/.emacs.d/site-lisp/*.el"
-  (load (expand-file-name "~/.custom.el") t nil)
+  (unless (boundp 'startup-now)
+    ;; my personal setup, other major-mode specific setup need it.
+    ;; It's dependent on "~/.emacs.d/site-lisp/*.el"
+    (load (expand-file-name "~/.custom.el") t nil)
 
-  ;; @see https://www.reddit.com/r/emacs/comments/4q4ixw/how_to_forbid_emacs_to_touch_configuration_files/
-  ;; See `custom-file' for details.
-  (load (setq custom-file (expand-file-name "~/.emacs.d/custom-set-variables.el")) t t))
+    ;; @see https://www.reddit.com/r/emacs/comments/4q4ixw/how_to_forbid_emacs_to_touch_configuration_files/
+    ;; See `custom-file' for details.
+    (load (setq custom-file (expand-file-name "~/.emacs.d/custom-set-variables.el")) t t)))
 
 (setq gc-cons-threshold best-gc-cons-threshold)
 
